@@ -1,0 +1,217 @@
+---
+title: "Improving Event Memory Recognition through Mimicry"
+author: "Sophie Su"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_depth: 6
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(BayesFactor)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Analysis Goal 
+  - N=8 all females
+  - Making sure that participants were paying attention and doing the task 
+  - Making sure that the recognition task is adequate. 
+
+```{r,warning=FALSE}
+#read in all the csv files that include "_cleaned" to create one dataframe
+setwd("/Users/sophie/Library/CloudStorage/Box-Box/DCL_ARCHIVE/Documents/Events/exp168_ActionsInfluenceMemory/miming_watching_cleaned")
+files <- list.files(pattern = "_cleaned.csv")
+df <- lapply(files, read.csv, header = TRUE, sep = ",")
+df <- do.call(rbind, df)
+```
+
+## Participants' Math Performance
+  - Overall, people are performing very well for the math task. 
+```{r,warning=FALSE}
+#first filter out participants who performed badly on the math questions 
+math_performance<-df%>%
+filter(task=="math")%>%
+group_by(PROLIFIC_PID)%>%
+#recode TRUE to 1 and FALSE to 0
+mutate(math_correct=ifelse(math_correct=="True", 1, 0))%>%
+summarise(math_accuracy=mean(math_correct))
+math_performance
+```
+  
+```{r,warning=FALSE}
+#remove PROLIFIC_ID is  because the participants only pressed one key. 
+df<-df%>%
+  filter(PROLIFIC_PID!="")
+reaction_time_inclusion=df%>%
+  group_by(PROLIFIC_PID) %>%
+  filter(task=="Watch"|task=="Act")%>%
+  summarise(top_fifth=sort(rt, decreasing = TRUE)[5])%>% 
+  mutate(include=ifelse(top_fifth>30000, "no", "yes"))
+accraucy_inclusion=df%>%
+ filter(task=="Watch"|task=="Act")%>%
+  group_by(PROLIFIC_PID,Movie) %>%
+  summarise(accuracy_rate=mean(corrected))%>% 
+  mutate(include=ifelse(accuracy_rate<mean(accuracy_rate)-3*sd(accuracy_rate), "no", "yes"))
+#remove the maximum value of rt 
+filtered_df<-df%>%
+filter(task=="Watch"|task=="Act")%>%
+  filter(rt<mean(rt)+3*sd(rt) & rt>300)
+```
+
+### Reaction time for the recognition task
+  - not a lot of outliers in the reaction time. 
+```{r,include=FALSE,warning=FALSE}
+ggplot(filtered_df, aes(x=rt))+
+  geom_histogram(binwidth = 1000)+
+  theme_bw()+
+  labs(x="Reaction Time", y="Count")
+```
+
+
+```{r,warning=FALSE, include=FALSE}
+summarized_all_item<-filtered_df%>%
+  group_by(actual_target)%>%
+  summarise(accuracy_rate=mean(corrected), 
+            task=task,
+            movie=Movie, 
+            condition=condition,
+            mean_rt=mean(rt))
+summarized_all_item<-summarized_all_item%>%
+  distinct(actual_target, .keep_all = TRUE)
+
+summarized_all<-filtered_df%>%
+group_by(PROLIFIC_PID, Movie,task)%>%
+summarise(accuracy_rate=mean(corrected), 
+          task=task,
+          condition=condition,
+       mean_rt=mean(rt))
+#remove duplicated rows 
+summarized_all<-summarized_all%>%
+  distinct(PROLIFIC_PID, .keep_all = TRUE)
+```
+
+### Assignment of Conditions
+```{r,warning=FALSE}
+table(summarized_all$condition)
+```
+
+
+##  Mean Recognition Accuracy by Participant and Target Item
+  - Here I am plotting the mean accuracy of participants' recognition task based on the task and movie, as well as the target's item. 
+```{r,warning=FALSE}
+ggplot(summarized_all, aes(x=PROLIFIC_PID, y=accuracy_rate,color=PROLIFIC_PID))+
+  geom_boxplot()+
+  facet_grid(task~Movie)+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  labs(x="ID", y="Accuracy Rate")+
+  ggtitle("Accuracy Rate of Recognition by Participants")+
+  #get ride of the legend
+  guides(color=FALSE)+
+  scale_x_discrete(labels = NULL)
+
+ggplot(summarized_all_item, aes(x=actual_target,y=accuracy_rate,color=actual_target))+
+  geom_boxplot()+
+  facet_grid(.~movie)+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  labs(x="Item", y="Accuracy Rate")+
+  ggtitle("Accuracy Rate of Recognition by Item")+
+  guides(color=FALSE)
+
+#remove the item that is below  0.5
+summarized_all_trial<-filtered_df%>%
+group_by(PROLIFIC_PID, Movie)%>%
+summarise(accuracy_rate=mean(corrected), 
+          task=task,
+          condition=condition,
+       mean_rt=mean(rt))
+```
+
+## The Effect of Prior Task on Recognition Accuracy
+  - Here I am plotting the averaged recognition accuracy by prior tasks for each movie. 
+  - Based on the 8 participants data, people in the watch condition seems to have better recognition accuracy than people in the act condition, as well as shorter reaction time to make that judgment. 
+```{r,warning=FALSE}
+# add the rank to the accuracy_rate
+ggplot(summarized_all, aes(x=Movie, y=accuracy_rate, fill=task)) +
+  geom_violin(draw_quantiles = c(0.5), trim=FALSE)+
+  theme(legend.position = "bottom") +
+  labs(x="Movie", y="Accuracy ", fill="Task")+
+  ggtitle("Accuracy Rate of Recognition by Previous Task")+
+  theme_classic()
+
+#plot the box plot of mean_rt based on Task and Movie
+ggplot(summarized_all, aes(x=Movie, y=mean_rt, fill=task)) +
+  geom_violin(draw_quantiles = c(0.5), trim=FALSE)+
+  theme(legend.position = "bottom") +
+  ggtitle("Mean Reaction Time of Recognition by Previous Task")+
+  labs(x="Movie", y="Mean RT", fill="Task")
+```
+
+
+## Examine Confidence Rating by Participants and Item
+  -  Here I am plotting the mean confidence rating in their recognition task by participants or by item.
+  - People have higher confidence judging the gardening movie.  
+  - There is no obvious trend of confidence judgment by prior task.
+```{r,warning=FALSE}
+
+recog_df<-df%>%
+filter(task=="Rec_Conf"|task=="Act"|task=="Watch")
+recog_df$previous_movie <- c(NA, recog_df$Movie[1:(nrow(recog_df) - 1)])
+recog_df$previous_task <- c(NA, recog_df$task[1:(nrow(recog_df) - 1)])
+confidence_df<-recog_df%>%
+filter(task=="Rec_Conf")%>%
+group_by(PROLIFIC_PID,previous_movie,previous_task)%>%
+summarise(mean_confidence=mean(response))
+
+ggplot(confidence_df, aes(x=PROLIFIC_PID, y=mean_confidence,color=PROLIFIC_PID))+
+  geom_boxplot()+
+  facet_grid(previous_task~previous_movie)+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  labs(x="ID", y="Mean Confidence")+
+  ggtitle("Mean Confidence Ratings of participants")+
+  #get ride of the legend
+  guides(color=FALSE)+
+  scale_x_discrete(labels = NULL)
+
+confidence_df_item<-recog_df%>%
+filter(task=="Rec_Conf")%>%
+group_by(actual_target,previous_movie,previous_task)%>%
+summarise(mean_confidence=mean(response))
+
+
+ggplot(confidence_df_item, aes(x=actual_target,y=mean_confidence,color=actual_target))+
+  geom_boxplot()+
+  facet_grid(.~previous_movie)+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  labs(x="Item", y="Mean Confidence")+
+  ggtitle("Mean Confidence Ratings of target items")+
+  guides(color=FALSE)
+
+
+ggplot(confidence_df, aes(x=previous_movie, y=mean_confidence, fill=previous_task)) +
+  geom_violin(draw_quantiles = c(0.5), trim=FALSE)+
+  theme(legend.position = "bottom") +
+  labs(x="Movie", y="Mean Confidence ", fill="Task")+
+  ggtitle("Mean Confidence Ratings by previous task")
+
+```
+
+## Subject-level statistical models
+  - Due to the limited number of participants,nothing is significant.
+```{r,warning=FALSE}
+model1.2<-lm(accuracy_rate~task*Movie, data=summarized_all)
+summary(model1.2)
+model2.2 <- glm(mean_rt ~ task*Movie, family = Gamma(link = "log"), data = summarized_all)
+summary(model2.2)
+```

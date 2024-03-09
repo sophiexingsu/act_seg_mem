@@ -1,1 +1,1 @@
-# act_seg_mem
+# This is all the code repository for the action influence segmentation project
