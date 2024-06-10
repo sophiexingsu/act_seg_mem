@@ -1,0 +1,212 @@
+---
+title: "Enhancing Event Memory Recognition through Action"
+author: "Sophie Su"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: yes
+    toc_depth: 6
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(BayesFactor)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Research Question: Does performing a series of actions enhance recognition memory of movies that include these actions? 
+  - Answer: Initial results from the pilot dataset indicate that this active engagement did not significantly improve recognition memory. While the trend was in the anticipated direction, the effect did not reach statistical significance.
+  
+## Future Directions
+
+  — One potential way to strengthen the analysis could be to increase the sample size. A larger number of subjects may enhance the statistical power of the study, potentially leading to more definitive conclusions regarding the impact of active engagement on memory recognition.
+  
+
+```{r,warning=FALSE}
+#read in all the csv files that include "_cleaned" to create one dataframe
+setwd("/Users/sophie/Library/CloudStorage/Box-Box/DCL_ARCHIVE/Documents/Events/exp168_ActionsInfluenceMemory/act_mem_pilot_cleaned")
+files <- list.files(pattern = "_cleaned.csv")
+df <- lapply(files, read.csv, header = TRUE, sep = ",")
+df <- do.call(rbind, df)
+#list files from another directory 
+setwd("/Users/sophie/Library/CloudStorage/Box-Box/DCL_ARCHIVE/Documents/Events/exp168_ActionsInfluenceMemory/SONA_act_event_mem_cleaned")
+new_files<-list.files(pattern="_cleaned.csv")
+df_new<-lapply(new_files, read.csv, header = TRUE, sep = ",")
+df_new<-do.call(rbind, df_new)
+#remove PROLIFIC_ID is  because the participants only pressed one key. 
+df<-df%>%
+  filter(PROLIFIC_PID!="")
+reaction_time_inclusion=df%>%
+  group_by(PROLIFIC_PID) %>%
+  summarise(top_fifth=sort(rt, decreasing = TRUE)[5])%>% 
+  mutate(include=ifelse(top_fifth>30000, "no", "yes"))
+accraucy_inclusion=df%>%
+  group_by(PROLIFIC_PID,Movie) %>%
+  summarise(accuracy_rate=mean(corrected))%>% 
+  mutate(include=ifelse(accuracy_rate<mean(accuracy_rate)-3*sd(accuracy_rate), "no", "yes"))
+#remove the maximum value of rt 
+filtered_df<-df%>%
+  filter(PROLIFIC_PID!='8177SONA' & PROLIFIC_PID!="57cb1fa33579c90001ab5183"& PROLIFIC_PID!="64050cfd151bc9945fd3eac9" & PROLIFIC_PID!="59894fbbda239a0001fb8e16s")%>%
+  filter(rt<mean(rt)+3*sd(rt) & rt>300)
+#The new connected ones
+reaction_time_inclusion=df_new%>%
+  group_by(PROLIFIC_PID) %>%
+  summarise(top_fifth=sort(rt, decreasing = TRUE)[5])%>% 
+  mutate(include=ifelse(top_fifth>30000, "no", "yes"))
+accraucy_inclusion=df_new%>%
+  group_by(PROLIFIC_PID,Movie) %>%
+  summarise(accuracy_rate=mean(corrected))%>% 
+  mutate(include=ifelse(accuracy_rate<mean(accuracy_rate)-3*sd(accuracy_rate), "no", "yes"))
+#remove the maximum value of rt 
+filtered_df_new<-df_new%>%
+  filter(rt<mean(rt)+3*sd(rt) & rt>300)
+```
+
+
+```{r,include=FALSE,warning=FALSE}
+#ggplot(filtered_df, aes(x=rt))+
+#  geom_histogram(binwidth = 1000)+
+#  theme_bw()+
+#  labs(x="Reaction Time", y="Count")
+#ggplot(filtered_df_new, aes(x=rt))+
+#  geom_histogram(binwidth = 1000)+
+#  theme_bw()+
+#  labs(x="Reaction Time", y="Count")
+```
+
+
+```{r,warning=FALSE, include=FALSE}
+#calculate the averaged of "corrected" by Prolfic ID
+#summarized<-filtered_df%>%
+#group_by(PROLIFIC_PID, Movie)%>%
+#summarise(accuracy_rate=mean(corrected), 
+#          Task=Task,
+#          condition=condition,
+#       mean_rt=mean(rt))
+#remove duplicated rows 
+#summarized<-summarized%>%
+#  distinct(PROLIFIC_PID, .keep_all = TRUE)
+all_filtered_df<-rbind (filtered_df, filtered_df_new)
+summarized_all_item<-all_filtered_df%>%
+  group_by(actual_target)%>%
+  summarise(accuracy_rate=mean(corrected), 
+            Task=Task,
+            movie=Movie, 
+            condition=condition,
+            mean_rt=mean(rt))
+summarized_all_item<-summarized_all_item%>%
+  distinct(actual_target, .keep_all = TRUE)
+
+summarized_all<-all_filtered_df%>%
+group_by(PROLIFIC_PID, Movie,Task)%>%
+summarise(accuracy_rate=mean(corrected), 
+          Task=Task,
+          condition=condition,
+       mean_rt=mean(rt))
+#remove duplicated rows 
+summarized_all<-summarized_all%>%
+  distinct(PROLIFIC_PID, .keep_all = TRUE)
+```
+
+### Assignment of Conditions
+```{r,warning=FALSE}
+#table(summarized$condition)
+table(summarized_all$condition)
+```
+
+
+### Box plot of accuracy_rate based on Task and Movie
+```{r,warning=FALSE}
+ggplot(summarized_all, aes(x=PROLIFIC_PID, y=accuracy_rate,color=PROLIFIC_PID))+
+  geom_boxplot()+
+  facet_grid(Task~Movie)+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  labs(x="ID", y="Accuracy Rate")+
+  #get ride of the legend
+  guides(color=FALSE)+
+  scale_x_discrete(labels = NULL)
+
+ggplot(summarized_all_item, aes(x=actual_target,y=accuracy_rate,color=actual_target))+
+  geom_boxplot()+
+  facet_grid(.~movie)+
+  theme_bw()+
+  theme(legend.position = "bottom")+
+  labs(x="Item", y="Accuracy Rate")+
+  guides(color=FALSE)
+
+#remove the item that is below  0.5
+summarized_all_trial<-all_filtered_df%>%
+group_by(PROLIFIC_PID, Movie)%>%
+summarise(accuracy_rate=mean(corrected), 
+          Task=Task,
+          condition=condition,
+       mean_rt=mean(rt))
+
+# add the rank to the accuracy_rate
+ggplot(summarized_all, aes(x=Movie, y=accuracy_rate, fill=Task)) +
+  geom_violin(draw_quantiles = c(0.5), trim=FALSE)+
+  theme(legend.position = "bottom") +
+  labs(x="Movie", y="Accuracy ", fill="Task")+
+  theme_classic()
+
+#plot the box plot of mean_rt based on Task and Movie
+ggplot(summarized_all, aes(x=Movie, y=mean_rt, fill=Task)) +
+  geom_violin(draw_quantiles = c(0.5), trim=FALSE)+
+  theme(legend.position = "bottom") +
+  labs(x="Movie", y="Mean RT", fill="Task")
+```
+
+## additional analysis
+```{r}
+filtered_all_item<-summarized_all_item%>%
+  filter(accuracy_rate>0.5)%>%
+  distinct(actual_target, .keep_all = TRUE)
+  
+all_item<-unique(filtered_all_item$actual_target)
+
+# only keep traisl where actual target are in the all_item list 
+all_filtered_df<-all_filtered_df%>%
+  filter(actual_target %in% all_item)
+
+summarized_all_trial<-all_filtered_df%>%
+group_by(PROLIFIC_PID, Movie)%>%
+summarise(accuracy_rate=mean(corrected), 
+          Task=Task,
+          condition=condition,
+       mean_rt=mean(rt))
+```
+
+## Subject-level statistical models: 
+```{r,warning=FALSE}
+model1.2<-lm(accuracy_rate~Task*Movie, data=summarized_all)
+summary(model1.2)
+model2.2 <- glm(mean_rt ~ Task*Movie, family = Gamma(link = "log"), data = summarized_all)
+summary(model2.2)
+```
+
+## Subject Level Bayes analysis
+```{r,warning=FALSE}
+BF1<-lmBF(accuracy_rate ~Task+Movie+PROLIFIC_PID, whichRandom = c("PROLIFIC_PID", "Movie"),data.frame(summarized_all))
+BF0<-lmBF(accuracy_rate ~ Movie+PROLIFIC_PID, whichRandom = c("PROLIFIC_PID", "Movie"),data.frame(summarized_all))
+BF1/BF0 
+```
+
+## Trail-level statistical models: 
+```{r,warning=FALSE}
+model <- glmer(corrected ~ Task*Movie + (1| PROLIFIC_PID), data =filtered_df_new, family = binomial)
+summary(model)
+```
+
+## Trail-level Bayes analysis
+```{r,warning=FALSE}
+BF1<-lmBF(corrected ~Task*Movie+PROLIFIC_PID, whichRandom = c("PROLIFIC_PID"),data.frame(filtered_df))
+BF0<-lmBF(corrected ~ Task+Movie+PROLIFIC_PID, whichRandom = c("PROLIFIC_PID"),data.frame(filtered_df))
+BF1/BF0 
+```
